@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>围棋识别</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#111827;color:#e5e7eb;min-height:100vh}
+.app{max-width:1300px;margin:0 auto;padding:20px}
+h1{text-align:center;font-size:22px;color:#38bdf8;margin-bottom:4px;letter-spacing:1px}
+.sub{text-align:center;color:#6b7280;font-size:13px;margin-bottom:8px}
+.cv-badge{text-align:center;font-size:12px;margin-bottom:20px;color:#f59e0b}
+.cv-badge.ok{color:#22c55e}
+.cv-badge.err{color:#ef4444}
+
+.steps{display:flex;gap:4px;margin-bottom:24px}
+.step{flex:1;padding:10px 6px;border-radius:8px;text-align:center;font-size:13px;
+  background:#1f2937;border:1px solid #374151;color:#6b7280;transition:all .3s}
+.step.active{border-color:#38bdf8;color:#38bdf8;background:#0c2233}
+.step.done{border-color:#22c55e;color:#22c55e}
+
+.upload-zone{border:2px dashed #374151;border-radius:12px;padding:64px 20px;
+  text-align:center;cursor:pointer;transition:all .3s;background:#1f2937}
+.upload-zone:hover,.upload-zone.over{border-color:#38bdf8;background:#0c2233}
+.upload-zone .ico{font-size:52px;margin-bottom:14px}
+.upload-zone h3{color:#38bdf8;margin-bottom:6px}
+.upload-zone p{color:#9ca3af;font-size:13px}
+#fileIn{display:none}
+
+.hint-bar{padding:10px 16px;background:#0c2233;border-radius:8px;
+  border-left:4px solid #38bdf8;font-size:14px;margin-bottom:14px}
+.canvas-wrap{position:relative;display:inline-block;max-width:100%;cursor:crosshair}
+#imgCanvas{display:block;max-width:100%;border-radius:8px}
+
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.btn{padding:10px 22px;border-radius:8px;border:none;cursor:pointer;
+  font-size:14px;font-weight:600;transition:all .2s}
+.btn-p{background:#38bdf8;color:#0a0f1a}
+.btn-p:hover{background:#7dd3fc}
+.btn-p:disabled{background:#374151;color:#6b7280;cursor:not-allowed}
+.btn-s{background:#1f2937;color:#38bdf8;border:1px solid #38bdf8}
+.btn-s:hover{background:#0c2233}
+.btn-o{background:#1f2937;color:#f59e0b;border:1px solid #f59e0b}
+.btn-o:hover{background:#1a1400}
+
+.result-grid{display:grid;grid-template-columns:1fr 1fr 220px;gap:20px;margin-top:16px;align-items:start}
+@media(max-width:900px){.result-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.result-grid{grid-template-columns:1fr}}
+.panel-label{color:#9ca3af;font-size:12px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+#warpCanvas,#boardCanvas{display:block;border-radius:8px;max-width:100%}
+#warpCanvas{border:1px solid #374151}
+#boardCanvas{cursor:crosshair}
+
+.stats{background:#1f2937;border-radius:10px;padding:16px}
+.stats h3{color:#38bdf8;font-size:14px;margin-bottom:10px}
+.stat-row{display:flex;justify-content:space-between;margin-bottom:8px;font-size:14px}
+.stat-lbl{color:#9ca3af}.stat-val{font-weight:700}
+hr.sep{border:none;border-top:1px solid #374151;margin:10px 0}
+.tip{font-size:11px;color:#6b7280;margin-top:8px;line-height:1.6}
+
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.leg{display:flex;align-items:center;gap:5px;font-size:12px;color:#9ca3af}
+.dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+
+.debug-toggle{margin-top:14px}
+.debug-panel{display:none;margin-top:14px}
+.debug-panel.open{display:block}
+.debug-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px}
+@media(max-width:900px){.debug-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:500px){.debug-grid{grid-template-columns:1fr}}
+.debug-item{background:#1f2937;border-radius:8px;padding:8px;overflow:hidden}
+.debug-item .panel-label{margin-bottom:4px;font-size:11px}
+.debug-item canvas{display:block;width:100%;border-radius:4px}
+
+#loading{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+  z-index:999;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+#loading.show{display:flex}
+.spinner{width:44px;height:44px;border:4px solid #374151;
+  border-top-color:#38bdf8;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loadMsg{color:#9ca3af;font-size:14px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>围棋棋盘识别</h1>
+  <p class="sub">OpenCV.js 本地处理 · 自动棋盘检测 · HoughCircles + Otsu 自动识别</p>
+  <p class="cv-badge" id="cvBadge">⏳ OpenCV.js 加载中，请稍候…</p>
+
+  <div class="steps">
+    <div class="step active" id="s1">① 上传图片</div>
+    <div class="step" id="s2">② 检测棋盘</div>
+    <div class="step" id="s3">③ 识别结果</div>
+  </div>
+
+  <!-- Section 1: Upload -->
+  <div id="sec1">
+    <div class="upload-zone" id="dropZone">
+      <div class="ico">📷</div>
+      <h3>上传棋盘照片</h3>
+      <p>点击选择 或 拖拽图片到此处，将自动检测棋盘并识别</p>
+      <p style="margin-top:6px;font-size:12px">支持 JPG / PNG / WEBP</p>
+    </div>
+    <input type="file" id="fileIn" accept="image/*">
+  </div>
+
+  <!-- Section 2: Corner selection -->
+  <div id="sec2" style="display:none">
+    <div class="hint-bar" id="hintBar">🎯 请依次点击棋盘四角：<strong>① 左上 → ② 右上 → ③ 右下 → ④ 左下</strong></div>
+    <div class="canvas-wrap"><canvas id="imgCanvas"></canvas></div>
+    <div class="legend">
+      <span class="leg"><span class="dot" style="background:#ef4444"></span>① 左上</span>
+      <span class="leg"><span class="dot" style="background:#f97316"></span>② 右上</span>
+      <span class="leg"><span class="dot" style="background:#22c55e"></span>③ 右下</span>
+      <span class="leg"><span class="dot" style="background:#3b82f6"></span>④ 左下</span>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-s" onclick="resetCorners()">重新选点</button>
+      <button class="btn btn-o" onclick="manualAutoDetect()">自动检测角点</button>
+      <button class="btn btn-p" id="procBtn" disabled onclick="startProcess()">识别棋盘 →</button>
+    </div>
+  </div>
+
+  <!-- Section 3: Results -->
+  <div id="sec3" style="display:none">
+    <div class="btn-row" style="margin-bottom:14px">
+      <button class="btn btn-s" onclick="goBack()">← 重新识别</button>
+      <button class="btn btn-p" onclick="copySGF()">复制 SGF</button>
+    </div>
+    <div class="result-grid">
+      <div>
+        <div class="panel-label">透视矫正预览</div>
+        <canvas id="warpCanvas"></canvas>
+      </div>
+      <div>
+        <div class="panel-label">识别结果（点击修正 空→黑→白→空）</div>
+        <canvas id="boardCanvas"></canvas>
+      </div>
+      <div class="stats">
+        <h3>棋局统计</h3>
+        <div class="stat-row"><span class="stat-lbl">⚫ 黑棋</span><span class="stat-val" id="cntB">-</span></div>
+        <div class="stat-row"><span class="stat-lbl">⚪ 白棋</span><span class="stat-val" id="cntW">-</span></div>
+        <div class="stat-row"><span class="stat-lbl">总落子</span><span class="stat-val" id="cntT">-</span></div>
+        <hr class="sep">
+        <p class="tip">HoughCircles 圆形检测 + Otsu 自动黑白分类<br><br>点击棋盘格点手动纠正</p>
+      </div>
+    </div>
+    <div class="debug-toggle">
+      <button class="btn btn-s" onclick="toggleDebug()">🔍 显示/隐藏 检测过程</button>
+    </div>
+    <div class="debug-panel" id="debugPanel">
+      <div class="debug-grid">
+        <div class="debug-item">
+          <div class="panel-label">① 灰度 + 高斯模糊</div>
+          <canvas id="dbgGray"></canvas>
+        </div>
+        <div class="debug-item">
+          <div class="panel-label">② 自适应二值化 (BINARY_INV)</div>
+          <canvas id="dbgBin"></canvas>
+        </div>
+        <div class="debug-item">
+          <div class="panel-label">③ 形态学闭运算</div>
+          <canvas id="dbgMorph"></canvas>
+        </div>
+        <div class="debug-item">
+          <div class="panel-label">④ HoughCircles 检测圆 (绿=命中格点, 红=未命中)</div>
+          <canvas id="dbgCircles"></canvas>
+        </div>
+        <div class="debug-item">
+          <div class="panel-label">⑤ 格点特征 (g=灰度 σ=标准差)</div>
+          <canvas id="dbgGmean"></canvas>
+        </div>
+        <div class="debug-item">
+          <div class="panel-label">⑥ 决策图 (绿=圆→黑 蓝=圆→白 灰=空)</div>
+          <canvas id="dbgDecision"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="loading"><div class="spinner"></div><span id="loadMsg">正在处理…</span></div>
+
+<!-- OpenCV.js 必须先定义 Module，再加载脚本 -->
+<script>
+var Module = {
+  onRuntimeInitialized: function () {
+    window._cvReady = true;
+    const el = document.getElementById('cvBadge');
+    el.textContent = '✓ OpenCV.js 已就绪';
+    el.className = 'cv-badge ok';
+    if (window._pendingProcess) { window._pendingProcess(); window._pendingProcess = null; }
+  }
+};
+</script>
+<script async src="opencv.js"></script>
+
+<script>
+// ─────────────────────────────────────────
+// 常量
+// ─────────────────────────────────────────
+const BS = 19, CELL = 40, MAR = 20;
+const WSIZE = MAR * 2 + (BS - 1) * CELL; // 760
+const STONE_R = CELL * 0.44;
+const SR = Math.floor(CELL * 0.28); // sample radius
+
+// ─────────────────────────────────────────
+// 状态
+// ─────────────────────────────────────────
+let procImg   = null;  // scaled HTMLImageElement
+let dispScale = 1;     // procImg → display canvas
+let corners   = [];    // [{x,y}] display canvas space
+let warpedCvs = null;  // warped canvas (WSIZE×WSIZE)
+let board     = null;  // 19×19: 0/1/2
+
+// ─────────────────────────────────────────
+// JS 降级单应矩阵（OpenCV 不可用时使用）
+// ─────────────────────────────────────────
+function gaussElim(A, b) {
+  const n = b.length;
+  const M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let mx = c;
+    for (let r = c+1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[mx][c])) mx = r;
+    [M[c], M[mx]] = [M[mx], M[c]];
+    for (let r = c+1; r < n; r++) {
+      const f = M[r][c] / M[c][c];
+      for (let j = c; j <= n; j++) M[r][j] -= f * M[c][j];
+    }
+  }
+  const x = new Array(n);
+  for (let i = n-1; i >= 0; i--) {
+    x[i] = M[i][n] / M[i][i];
+    for (let j = i+1; j < n; j++) x[i] -= M[i][j] * x[j] / M[i][i];
+  }
+  return x;
+}
+function computeH_js(src, dst) {
+  const A=[], b=[];
+  for (let i=0; i<4; i++) {
+    const {x,y}=src[i], {x:u,y:v}=dst[i];
+    A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u);
+    A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v);
+  }
+  const h = gaussElim(A, b);
+  return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
+}
+function inv3(m) {
+  const [a,b,c]=m[0],[d,e,f]=m[1],[g,h,k]=m[2];
+  const det=a*(e*k-f*h)-b*(d*k-f*g)+c*(d*h-e*g);
+  return [[(e*k-f*h)/det,(c*h-b*k)/det,(b*f-c*e)/det],
+          [(f*g-d*k)/det,(a*k-c*g)/det,(c*d-a*f)/det],
+          [(d*h-e*g)/det,(b*g-a*h)/det,(a*e-b*d)/det]];
+}
+function applyH(H,x,y){
+  const w=H[2][0]*x+H[2][1]*y+H[2][2];
+  return [(H[0][0]*x+H[0][1]*y+H[0][2])/w,(H[1][0]*x+H[1][1]*y+H[1][2])/w];
+}
+
+// ─────────────────────────────────────────
+// 工具
+// ─────────────────────────────────────────
+function imgToCanvas(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  c.getContext('2d').drawImage(img, 0, 0);
+  return c;
+}
+function showLoad(msg='正在处理…') {
+  document.getElementById('loadMsg').textContent = msg;
+  document.getElementById('loading').classList.add('show');
+}
+function hideLoad() { document.getElementById('loading').classList.remove('show'); }
+
+// ─────────────────────────────────────────
+// 透视变换
+// ─────────────────────────────────────────
+// srcPts: [{x,y}] in procImg coords
+function doWarp(srcPts) {
+  // 木板四角映射到画布边缘，棋线自然落在 MAR 附近
+  const dstCoords = [0,0, WSIZE,0, WSIZE,WSIZE, 0,WSIZE];
+
+  if (window._cvReady) {
+    // ── OpenCV path ──
+    const c = imgToCanvas(procImg);
+    const src = cv.imread(c);
+    const dst = new cv.Mat();
+    const sM = cv.matFromArray(4,1,cv.CV_32FC2, srcPts.flatMap(p=>[p.x,p.y]));
+    const dM = cv.matFromArray(4,1,cv.CV_32FC2, dstCoords);
+    const M  = cv.getPerspectiveTransform(sM, dM);
+    cv.warpPerspective(src, dst, M, new cv.Size(WSIZE, WSIZE),
+                       cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+    const out = document.createElement('canvas');
+    out.width = out.height = WSIZE;
+    cv.imshow(out, dst);
+    [src,dst,sM,dM,M].forEach(m=>m.delete());
+    return out;
+  } else {
+    // ── JS fallback ──
+    const dstPts = [{x:0,y:0},{x:WSIZE,y:0},
+                    {x:WSIZE,y:WSIZE},{x:0,y:WSIZE}];
+    const H_inv = inv3(computeH_js(srcPts, dstPts));
+    const c = imgToCanvas(procImg);
+    const {data:sd} = c.getContext('2d').getImageData(0,0,c.width,c.height);
+    const out = document.createElement('canvas');
+    out.width = out.height = WSIZE;
+    const ctx = out.getContext('2d');
+    const dd = ctx.createImageData(WSIZE,WSIZE);
+    const W = c.width;
+    for (let dy=0; dy<WSIZE; dy++) for (let dx=0; dx<WSIZE; dx++) {
+      const [sx,sy] = applyH(H_inv,dx,dy);
+      if (sx<0||sy<0||sx>=W-1||sy>=c.height-1) continue;
+      const x0=sx|0, y0=sy|0, fx=sx-x0, fy=sy-y0, i=(dy*WSIZE+dx)*4;
+      for (let c=0; c<3; c++) {
+        const p00=sd[(y0*W+x0)*4+c], p10=sd[(y0*W+x0+1)*4+c];
+        const p01=sd[((y0+1)*W+x0)*4+c], p11=sd[((y0+1)*W+x0+1)*4+c];
+        dd.data[i+c]=p00*(1-fx)*(1-fy)+p10*fx*(1-fy)+p01*(1-fx)*fy+p11*fx*fy;
+      }
+      dd.data[i+3]=255;
+    }
+    ctx.putImageData(dd,0,0);
+    return out;
+  }
+}
+
+// ─────────────────────────────────────────
+// 调试面板
+// ─────────────────────────────────────────
+function toggleDebug() {
+  document.getElementById('debugPanel').classList.toggle('open');
+}
+function matToCanvas(mat, canvasId) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  c.width = mat.cols; c.height = mat.rows;
+  cv.imshow(c, mat);
+}
+
+// ─────────────────────────────────────────
+// 棋子检测（以 HoughCircles 为核心 + Otsu 自动黑白分类）
+// ─────────────────────────────────────────
+function detectStones() {
+  const darkT = 80, lightT = 155;
+  if (!warpedCvs) return null;
+
+  if (window._cvReady) {
+    const src = cv.imread(warpedCvs);
+    const gray = new cv.Mat(), blurred = new cv.Mat();
+    const adaptBin = new cv.Mat(), binClosed = new cv.Mat();
+
+    // ① 灰度化 + 高斯去噪
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(7, 7), 1.5);
+    matToCanvas(blurred, 'dbgGray');
+
+    // ② 自适应二值化
+    const blockSize = (Math.floor(CELL * 1.2) | 1) || 49;
+    cv.adaptiveThreshold(blurred, adaptBin, 255,
+      cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV,
+      blockSize, 4);
+    matToCanvas(adaptBin, 'dbgBin');
+
+    // ③ 形态学闭运算（填充棋子内部）
+    const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(5, 5));
+    cv.morphologyEx(adaptBin, binClosed, cv.MORPH_CLOSE, kernel);
+    matToCanvas(binClosed, 'dbgMorph');
+
+    const W = gray.cols, H = gray.rows;
+    const gData = blurred.data;
+
+    // ④ HoughCircles 圆形检测
+    const circles = new cv.Mat();
+    const expectedR = CELL * 0.44;
+    cv.HoughCircles(blurred, circles, cv.HOUGH_GRADIENT,
+      1, CELL * 0.65, 80, 22,
+      Math.floor(expectedR * 0.5),
+      Math.floor(expectedR * 1.5)
+    );
+
+    // ⑤ 每个圆匹配真正最近的格点（搜索4邻域，容差 CELL*0.7）
+    const SNAP_R = CELL * 0.7;
+    const circleAt = Array.from({length: BS}, () => Array(BS).fill(null));
+    const allCircles = [];
+
+    for (let i = 0; i < circles.cols; i++) {
+      const cx = circles.data32F[i * 3], cy = circles.data32F[i * 3 + 1];
+      const r  = circles.data32F[i * 3 + 2];
+      // 搜索 floor/ceil 的 4 个候选格点，找真正最近的
+      const col0 = Math.floor((cx - MAR) / CELL);
+      const row0 = Math.floor((cy - MAR) / CELL);
+      let bestDist = Infinity, bestRow = -1, bestCol = -1;
+      for (let dr = 0; dr <= 1; dr++) for (let dc = 0; dc <= 1; dc++) {
+        const rr = row0 + dr, cc = col0 + dc;
+        if (rr < 0 || rr >= BS || cc < 0 || cc >= BS) continue;
+        const d = Math.hypot(cx - (MAR + cc * CELL), cy - (MAR + rr * CELL));
+        if (d < bestDist) { bestDist = d; bestRow = rr; bestCol = cc; }
+      }
+      let snapped = false;
+      if (bestRow >= 0 && bestDist < SNAP_R) {
+        const sampleR = Math.floor(r * 0.6);
+        let gSum = 0, n = 0;
+        for (let dy = -sampleR; dy <= sampleR; dy++) for (let dx = -sampleR; dx <= sampleR; dx++) {
+          if (dx * dx + dy * dy > sampleR * sampleR) continue;
+          const px = Math.round(cx) + dx, py = Math.round(cy) + dy;
+          if (px < 0 || py < 0 || px >= W || py >= H) continue;
+          gSum += gData[py * W + px]; n++;
+        }
+        const gMean = n ? gSum / n : 128;
+        const prev = circleAt[bestRow][bestCol];
+        if (!prev || bestDist < prev.dist) {
+          circleAt[bestRow][bestCol] = {cx, cy, r, gMean, dist: bestDist};
+        }
+        snapped = true;
+      }
+      allCircles.push({cx, cy, r, snapped});
+    }
+
+    // ⑥ Otsu 自动计算黑白分界 + 统计黑白棋灰度范围
+    const stoneGrays = [];
+    for (let row = 0; row < BS; row++) for (let col = 0; col < BS; col++) {
+      if (circleAt[row][col]) stoneGrays.push(circleAt[row][col].gMean);
+    }
+
+    let autoSplit = (darkT + lightT) / 2;
+    if (stoneGrays.length >= 2) {
+      stoneGrays.sort((a, b) => a - b);
+      let bestThresh = stoneGrays[0], bestVar = 0;
+      for (let t = 0; t < stoneGrays.length; t++) {
+        const lo = stoneGrays.slice(0, t + 1), hi = stoneGrays.slice(t + 1);
+        if (!lo.length || !hi.length) continue;
+        const mLo = lo.reduce((a, b) => a + b) / lo.length;
+        const mHi = hi.reduce((a, b) => a + b) / hi.length;
+        const between = lo.length * hi.length * (mLo - mHi) ** 2 / (lo.length + hi.length) ** 2;
+        if (between > bestVar) { bestVar = between; bestThresh = (stoneGrays[t] + (stoneGrays[t + 1] || stoneGrays[t])) / 2; }
+      }
+      autoSplit = bestThresh;
+    }
+
+    // ⑦ 生成棋盘结果：HoughCircles → Otsu 分黑白
+    const result = [];
+    const gridInfo = [];
+    for (let row = 0; row < BS; row++) {
+      result.push([]);
+      gridInfo.push([]);
+      for (let col = 0; col < BS; col++) {
+        const cx = MAR + col * CELL, cy = MAR + row * CELL;
+
+        let gSum = 0, gSqSum = 0, n = 0;
+        for (let dy = -SR; dy <= SR; dy++) for (let dx = -SR; dx <= SR; dx++) {
+          if (dx * dx + dy * dy > SR * SR) continue;
+          const px = cx + dx, py = cy + dy;
+          if (px < 0 || py < 0 || px >= W || py >= H) continue;
+          const g = gData[py * W + px];
+          gSum += g; gSqSum += g * g; n++;
+        }
+        const gMean = n ? gSum / n : 128;
+        const gStd = n ? Math.sqrt(Math.max(0, gSqSum / n - gMean * gMean)) : 99;
+
+        const cInfo = circleAt[row][col];
+
+        if (cInfo) {
+          const v = cInfo.gMean < autoSplit ? 1 : 2;
+          result[row].push(v);
+          gridInfo[row].push({gMean: cInfo.gMean, gStd, circ: true, reason: v === 1 ? 'circle+black' : 'circle+white'});
+        } else {
+          result[row].push(0);
+          gridInfo[row].push({gMean, gStd, circ: false, reason: 'empty'});
+        }
+      }
+    }
+
+    // ── 调试绘制 ──
+
+    // ④ HoughCircles 调试图
+    {
+      const dbg = document.getElementById('dbgCircles');
+      dbg.width = dbg.height = WSIZE;
+      const dx = dbg.getContext('2d');
+      dx.drawImage(warpedCvs, 0, 0);
+      dx.fillStyle = 'rgba(56,189,248,0.25)';
+      for (let r = 0; r < BS; r++) for (let c = 0; c < BS; c++) {
+        dx.beginPath(); dx.arc(MAR + c * CELL, MAR + r * CELL, 3, 0, Math.PI * 2); dx.fill();
+      }
+      for (const {cx, cy, r, snapped} of allCircles) {
+        dx.beginPath(); dx.arc(cx, cy, r, 0, Math.PI * 2);
+        dx.strokeStyle = snapped ? '#22c55e' : '#ef4444'; dx.lineWidth = 2; dx.stroke();
+        dx.beginPath(); dx.arc(cx, cy, 3, 0, Math.PI * 2);
+        dx.fillStyle = snapped ? '#22c55e' : '#ef4444'; dx.fill();
+      }
+      const snapN = allCircles.filter(c => c.snapped).length;
+      dx.fillStyle = '#fff'; dx.font = 'bold 13px sans-serif';
+      dx.fillText(`圆=${allCircles.length}  命中=${snapN}  Otsu=${autoSplit.toFixed(0)}`, 6, 15);
+    }
+
+    // ⑤ 格点特征热力图
+    {
+      const c = document.getElementById('dbgGmean');
+      c.width = c.height = WSIZE;
+      const dx = c.getContext('2d');
+      dx.fillStyle = '#1a1a2e'; dx.fillRect(0, 0, WSIZE, WSIZE);
+      for (let row = 0; row < BS; row++) for (let col = 0; col < BS; col++) {
+        const info = gridInfo[row][col];
+        const x = MAR + col * CELL, y = MAR + row * CELL;
+        const v = Math.round(info.gMean);
+        dx.fillStyle = `rgb(${v},${v},${v})`;
+        dx.fillRect(x - SR, y - SR, SR * 2, SR * 2);
+        dx.fillStyle = v < 128 ? '#aaa' : '#333';
+        dx.font = '7px monospace'; dx.textAlign = 'center';
+        dx.fillText(`g${v}`, x, y - 1);
+        dx.fillText(`σ${Math.round(info.gStd)}`, x, y + 8);
+      }
+      dx.fillStyle = '#ef4444'; dx.font = '12px sans-serif'; dx.textAlign = 'left';
+      dx.fillText(`Otsu=${autoSplit.toFixed(0)}  g=灰度 σ=标准差`, 6, 15);
+    }
+
+    // ⑥ 决策图
+    {
+      const c = document.getElementById('dbgDecision');
+      c.width = c.height = WSIZE;
+      const dx = c.getContext('2d');
+      dx.fillStyle = '#1a1a2e'; dx.fillRect(0, 0, WSIZE, WSIZE);
+      dx.strokeStyle = '#333'; dx.lineWidth = 0.5;
+      for (let i = 0; i < BS; i++) {
+        dx.beginPath(); dx.moveTo(MAR + i * CELL, MAR); dx.lineTo(MAR + i * CELL, MAR + 18 * CELL); dx.stroke();
+        dx.beginPath(); dx.moveTo(MAR, MAR + i * CELL); dx.lineTo(MAR + 18 * CELL, MAR + i * CELL); dx.stroke();
+      }
+      for (let row = 0; row < BS; row++) for (let col = 0; col < BS; col++) {
+        const info = gridInfo[row][col];
+        const x = MAR + col * CELL, y = MAR + row * CELL;
+        const rv = result[row][col];
+        if (info.circ) {
+          const isB = rv === 1;
+          dx.fillStyle = isB ? '#22c55e' : '#60a5fa';
+          dx.beginPath(); dx.arc(x, y, SR + 2, 0, Math.PI * 2); dx.fill();
+          dx.fillStyle = isB ? '#000' : '#fff';
+          dx.beginPath(); dx.arc(x, y, 6, 0, Math.PI * 2); dx.fill();
+          dx.fillStyle = '#fff'; dx.font = '7px monospace'; dx.textAlign = 'center';
+          dx.fillText(Math.round(info.gMean), x, y + SR + 12);
+          dx.strokeStyle = '#38bdf8'; dx.lineWidth = 1;
+          dx.beginPath(); dx.arc(x, y, SR + 4, 0, Math.PI * 2); dx.stroke();
+        } else {
+          dx.fillStyle = '#374151';
+          dx.beginPath(); dx.arc(x, y, 3, 0, Math.PI * 2); dx.fill();
+        }
+      }
+      dx.font = '11px sans-serif'; dx.textAlign = 'left';
+      const leg = [['#22c55e','圆→黑棋'],['#60a5fa','圆→白棋'],['#374151','空']];
+      leg.forEach(([cl, t], i) => {
+        dx.fillStyle = cl; dx.fillRect(6, WSIZE - 10 - (leg.length - 1 - i) * 16 - 8, 10, 10);
+        dx.fillStyle = '#e5e7eb'; dx.fillText(t, 20, WSIZE - 10 - (leg.length - 1 - i) * 16);
+      });
+    }
+
+    [src, gray, blurred, adaptBin, kernel, binClosed, circles].forEach(m => m.delete());
+    return result;
+  } else {
+    // JS 降级
+    const {data} = warpedCvs.getContext('2d').getImageData(0, 0, WSIZE, WSIZE);
+    const result = [];
+    for (let row = 0; row < BS; row++) {
+      result.push([]);
+      for (let col = 0; col < BS; col++) {
+        const cx = MAR + col * CELL, cy = MAR + row * CELL;
+        let gSum = 0, gSqSum = 0, n = 0;
+        for (let dy = -SR; dy <= SR; dy++) for (let dx = -SR; dx <= SR; dx++) {
+          if (dx * dx + dy * dy > SR * SR) continue;
+          const px = cx + dx, py = cy + dy;
+          if (px < 0 || py < 0 || px >= WSIZE || py >= WSIZE) continue;
+          const idx = (py * WSIZE + px) * 4;
+          const g = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          gSum += g; gSqSum += g * g; n++;
+        }
+        if (!n) { result[row].push(0); continue; }
+        const gMean = gSum / n;
+        const gStd = Math.sqrt(Math.max(0, gSqSum / n - gMean * gMean));
+        if (gStd < 25 && gMean < darkT) result[row].push(1);
+        else if (gStd < 20 && gMean > lightT) result[row].push(2);
+        else result[row].push(0);
+      }
+    }
+    return result;
+  }
+}
+
+// ─────────────────────────────────────────
+// 自动检测棋盘角点（轮廓检测 → HoughLines fallback）
+// 返回 true/false 表示是否成功
+// ─────────────────────────────────────────
+function autoDetectCorners(silent) {
+  if (!window._cvReady) {
+    if (!silent) alert('需要 OpenCV.js 才能自动检测角点');
+    return false;
+  }
+  try {
+    return _autoDetectCorners(silent);
+  } catch (e) {
+    console.warn('autoDetectCorners error:', e);
+    if (!silent) alert('自动检测失败，请手动点击角点');
+    return false;
+  }
+}
+
+function _orderCorners(pts) {
+  const cx = pts.reduce((s, p) => s + p.x, 0) / 4;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / 4;
+  const tl = pts.find(p => p.x < cx && p.y < cy) || pts[0];
+  const tr = pts.find(p => p.x >= cx && p.y < cy) || pts[1];
+  const br = pts.find(p => p.x >= cx && p.y >= cy) || pts[2];
+  const bl = pts.find(p => p.x < cx && p.y >= cy) || pts[3];
+  return [tl, tr, br, bl];
+}
+
+function _tryContourDetect() {
+  const c = imgToCanvas(procImg);
+  const src = cv.imread(c);
+  const gray = new cv.Mat(), blr = new cv.Mat(), edges = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blr, new cv.Size(5, 5), 1.5);
+
+  // 多阈值尝试 Canny，提高检测率
+  const thresholds = [[30, 100], [50, 150], [20, 80]];
+  let bestQuad = null, bestArea = 0;
+  const imgArea = c.width * c.height;
+
+  for (const [lo, hi] of thresholds) {
+    cv.Canny(blr, edges, lo, hi);
+    // 膨胀让边缘连续
+    const dKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.dilate(edges, edges, dKernel);
+    dKernel.delete();
+
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    for (let i = 0; i < contours.size(); i++) {
+      const cnt = contours.get(i);
+      const area = cv.contourArea(cnt);
+      if (area < imgArea * 0.1 || area <= bestArea) continue;
+      const peri = cv.arcLength(cnt, true);
+      const approx = new cv.Mat();
+      cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+      if (approx.rows === 4) {
+        const pts = [];
+        for (let j = 0; j < 4; j++) pts.push({x: approx.data32S[j * 2], y: approx.data32S[j * 2 + 1]});
+        bestQuad = pts;
+        bestArea = area;
+      }
+      approx.delete();
+    }
+    contours.delete(); hierarchy.delete();
+    if (bestQuad && bestArea > imgArea * 0.2) break;
+  }
+
+  [src, gray, blr, edges].forEach(m => m.delete());
+  return bestQuad;
+}
+
+function _tryHoughDetect() {
+  const c = imgToCanvas(procImg);
+  const src = cv.imread(c);
+  const gray = new cv.Mat(), blr = new cv.Mat(), edges = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+  cv.GaussianBlur(gray, blr, new cv.Size(5, 5), 1);
+  cv.Canny(blr, edges, 40, 120);
+
+  const lines = new cv.Mat();
+  cv.HoughLines(edges, lines, 1, Math.PI / 180, Math.floor(Math.min(c.width, c.height) * 0.25));
+
+  const horiz = [], vert = [];
+  for (let i = 0; i < lines.rows; i++) {
+    const rho = lines.data32F[i * 2], theta = lines.data32F[i * 2 + 1];
+    if (Math.abs(theta) < 0.35 || Math.abs(theta - Math.PI) < 0.35) vert.push({rho: Math.abs(rho), theta});
+    else if (Math.abs(theta - Math.PI / 2) < 0.35) horiz.push({rho, theta});
+  }
+
+  function cluster(arr, thresh = 30) {
+    arr.sort((a, b) => a.rho - b.rho);
+    const cls = [];
+    for (const l of arr) {
+      const last = cls[cls.length - 1];
+      if (last && Math.abs(l.rho - last.rho / last.n) < thresh) {
+        last.rho += l.rho; last.theta += l.theta; last.n++;
+      } else cls.push({rho: l.rho, theta: l.theta, n: 1});
+    }
+    return cls.map(g => ({rho: g.rho / g.n, theta: g.theta / g.n}));
+  }
+
+  const hC = cluster(horiz), vC = cluster(vert);
+  [src, gray, blr, edges, lines].forEach(m => m.delete());
+
+  if (hC.length < 2 || vC.length < 2) return null;
+
+  const top = hC[0], bot = hC[hC.length - 1];
+  const left = vC[0], right = vC[vC.length - 1];
+
+  function intersect(l1, l2) {
+    const det = Math.cos(l1.theta) * Math.sin(l2.theta) - Math.cos(l2.theta) * Math.sin(l1.theta);
+    if (Math.abs(det) < 1e-8) return null;
+    return {
+      x: (l1.rho * Math.sin(l2.theta) - l2.rho * Math.sin(l1.theta)) / det,
+      y: (l2.rho * Math.cos(l1.theta) - l1.rho * Math.cos(l2.theta)) / det,
+    };
+  }
+
+  const tl = intersect(top, left), tr = intersect(top, right);
+  const bl = intersect(bot, left), br = intersect(bot, right);
+  if (!tl || !tr || !bl || !br) return null;
+  return [tl, tr, br, bl];
+}
+
+// 轮廓检测到的是木板物理边缘，需要向内收缩到棋线交点位置
+// 标准19路棋盘：边缘到第一条线约半格，总宽约19格，收缩比 ≈ 0.5/19 ≈ 3%
+function _shrinkQuad(pts, ratio) {
+  const cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
+  const cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+  return pts.map(p => ({
+    x: p.x + (cx - p.x) * ratio,
+    y: p.y + (cy - p.y) * ratio,
+  }));
+}
+
+function _autoDetectCorners(silent) {
+  // 主通道：轮廓检测
+  let quad = _tryContourDetect();
+  let fromContour = false;
+  if (quad) { quad = _orderCorners(quad); fromContour = true; }
+
+  // Fallback：Hough 直线交点（已经是线交点，不需要收缩）
+  if (!quad) quad = _tryHoughDetect();
+
+  if (!quad) {
+    if (!silent) alert('自动检测失败，请手动选择角点');
+    return false;
+  }
+
+  // 用户定义棋盘=木板，不再缩小轮廓
+  // if (fromContour) quad = _shrinkQuad(quad, 0.035);
+
+  corners = quad.map(p => ({x: p.x * dispScale, y: p.y * dispScale}));
+  redrawCornerCanvas();
+  return true;
+}
+
+// ─────────────────────────────────────────
+// 渲染棋盘
+// ─────────────────────────────────────────
+function renderBoard(b) {
+  const cvs = document.getElementById('boardCanvas');
+  cvs.width = cvs.height = WSIZE;
+  const ctx = cvs.getContext('2d');
+
+  const bg = ctx.createLinearGradient(0,0,WSIZE,WSIZE);
+  bg.addColorStop(0,'#d4a348'); bg.addColorStop(1,'#c4923a');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,WSIZE,WSIZE);
+
+  ctx.strokeStyle='#7a5c1e'; ctx.lineWidth=1;
+  for (let i=0; i<BS; i++) {
+    const x=MAR+i*CELL;
+    ctx.beginPath(); ctx.moveTo(x,MAR); ctx.lineTo(x,MAR+18*CELL); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(MAR,x); ctx.lineTo(MAR+18*CELL,x); ctx.stroke();
+  }
+
+  ctx.fillStyle='#7a5c1e';
+  for (const r of [3,9,15]) for (const c of [3,9,15]) {
+    ctx.beginPath(); ctx.arc(MAR+c*CELL,MAR+r*CELL,3.5,0,2*Math.PI); ctx.fill();
+  }
+
+  ctx.fillStyle='#7a5c1e'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+  const cols='ABCDEFGHJKLMNOPQRST';
+  for (let i=0; i<BS; i++) {
+    ctx.fillText(cols[i], MAR+i*CELL, MAR-7);
+    ctx.fillText(BS-i, MAR-13, MAR+i*CELL+4);
+  }
+
+  for (let row=0; row<BS; row++) for (let col=0; col<BS; col++) {
+    const v=b[row][col]; if (!v) continue;
+    const cx=MAR+col*CELL, cy=MAR+row*CELL;
+    const g=ctx.createRadialGradient(cx-STONE_R*.3,cy-STONE_R*.35,1,cx,cy,STONE_R);
+    if (v===1){ g.addColorStop(0,'#646464'); g.addColorStop(1,'#000'); }
+    else      { g.addColorStop(0,'#ffffff'); g.addColorStop(1,'#c8c8c8'); }
+    ctx.beginPath(); ctx.arc(cx,cy,STONE_R,0,2*Math.PI);
+    ctx.fillStyle=g; ctx.fill();
+    if (v===2){ ctx.strokeStyle='#aaa'; ctx.lineWidth=.6; ctx.stroke(); }
+  }
+}
+
+function updateStats() {
+  if (!board) return;
+  let b=0,w=0; board.flat().forEach(v=>{ if(v===1)b++; else if(v===2)w++; });
+  document.getElementById('cntB').textContent=b;
+  document.getElementById('cntW').textContent=w;
+  document.getElementById('cntT').textContent=b+w;
+}
+
+// ─────────────────────────────────────────
+// SGF 导出
+// ─────────────────────────────────────────
+function boardToSGF(b) {
+  const L='abcdefghijklmnopqrs'; let bm='',wm='';
+  for (let r=0;r<BS;r++) for (let c=0;c<BS;c++) {
+    const p=L[c]+L[r];
+    if (b[r][c]===1) bm+=`[${p}]`; else if (b[r][c]===2) wm+=`[${p}]`;
+  }
+  return `(;GM[1]FF[4]SZ[19]AB${bm}AW${wm})`;
+}
+function copySGF() {
+  if (!board) return;
+  const sgf=boardToSGF(board);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(sgf).then(()=>alert('SGF 已复制到剪贴板'));
+  } else {
+    const ta=document.createElement('textarea'); ta.value=sgf;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); alert('SGF 已复制到剪贴板');
+  }
+}
+
+// ─────────────────────────────────────────
+// UI 工具
+// ─────────────────────────────────────────
+function setStep(n) {
+  ['s1','s2','s3'].forEach((id,i)=>{
+    document.getElementById(id).className='step'+(i+1<n?' done':i+1===n?' active':'');
+  });
+}
+
+// ─────────────────────────────────────────
+// 图片上传
+// ─────────────────────────────────────────
+const dropZone=document.getElementById('dropZone');
+dropZone.addEventListener('click',()=>document.getElementById('fileIn').click());
+document.getElementById('fileIn').addEventListener('change',e=>e.target.files[0]&&loadFile(e.target.files[0]));
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');e.dataTransfer.files[0]&&loadFile(e.dataTransfer.files[0]);});
+
+function loadFile(file) {
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const img=new Image();
+    img.onload=()=>{
+      const MAX=1800;
+      const sc=Math.min(1,MAX/Math.max(img.width,img.height));
+      if (sc<1) {
+        const c=document.createElement('canvas');
+        c.width=img.width*sc|0; c.height=img.height*sc|0;
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        const ni=new Image(); ni.onload=()=>{procImg=ni;showSec2();}; ni.src=c.toDataURL();
+      } else { procImg=img; showSec2(); }
+    };
+    img.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─────────────────────────────────────────
+// 角点选择
+// ─────────────────────────────────────────
+function showSec2(skipAutoDetect) {
+  document.getElementById('sec1').style.display='none';
+  document.getElementById('sec2').style.display='';
+  setStep(2); corners=[];
+  const cvs=document.getElementById('imgCanvas');
+  const maxW=Math.min(window.innerWidth-48,900);
+  const maxH=window.innerHeight-360;
+  dispScale=Math.min(maxW/procImg.width, maxH/procImg.height, 1);
+  cvs.width=procImg.width*dispScale|0;
+  cvs.height=procImg.height*dispScale|0;
+  redrawCornerCanvas();
+
+  if (skipAutoDetect) return;
+
+  // 上传后自动尝试检测角点
+  if (window._cvReady) {
+    showLoad('正在自动检测棋盘…');
+    setTimeout(() => {
+      const ok = autoDetectCorners(true);
+      hideLoad();
+      if (ok) {
+        document.getElementById('hintBar').innerHTML =
+          '✅ 已自动检测到棋盘边角，正在识别…';
+        redrawCornerCanvas();
+        setTimeout(() => startProcess(), 300);
+      } else {
+        document.getElementById('hintBar').innerHTML =
+          '⚠️ 自动检测未成功，请手动点击棋盘四角：<strong>① 左上 → ② 右上 → ③ 右下 → ④ 左下</strong>';
+      }
+    }, 80);
+  }
+}
+
+function redrawCornerCanvas() {
+  const cvs=document.getElementById('imgCanvas');
+  const ctx=cvs.getContext('2d');
+  ctx.drawImage(procImg,0,0,cvs.width,cvs.height);
+
+  if (corners.length>1) {
+    ctx.strokeStyle='rgba(56,189,248,.8)'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(corners[0].x,corners[0].y);
+    for (let i=1;i<corners.length;i++) ctx.lineTo(corners[i].x,corners[i].y);
+    if (corners.length===4) ctx.closePath();
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  const C=['#ef4444','#f97316','#22c55e','#3b82f6'];
+  corners.forEach(({x,y},i)=>{
+    // 半透明圆底
+    ctx.globalAlpha=0.35;
+    ctx.fillStyle=C[i]; ctx.beginPath(); ctx.arc(x,y,16,0,2*Math.PI); ctx.fill();
+    ctx.globalAlpha=1;
+    // 十字准星（中心点）
+    ctx.strokeStyle=C[i]; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x-8,y); ctx.lineTo(x+8,y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x,y-8); ctx.lineTo(x,y+8); ctx.stroke();
+    // 中心点
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,2.5,0,2*Math.PI); ctx.fill();
+    // 序号（半透明偏移标注）
+    ctx.globalAlpha=0.8;
+    ctx.fillStyle=C[i]; ctx.font='bold 13px sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText(i+1, x+10, y-6);
+    ctx.globalAlpha=1;
+  });
+  const hints=[
+    '🎯 请点击棋盘 <strong>左上角</strong>（第 ① 点）',
+    '🎯 请点击棋盘 <strong>右上角</strong>（第 ② 点）',
+    '🎯 请点击棋盘 <strong>右下角</strong>（第 ③ 点）',
+    '🎯 请点击棋盘 <strong>左下角</strong>（第 ④ 点）',
+    '✅ 四角标记完成，点击 <strong>识别棋盘</strong> 继续',
+  ];
+  document.getElementById('hintBar').innerHTML=hints[Math.min(corners.length,4)];
+  document.getElementById('procBtn').disabled=corners.length<4;
+}
+
+document.getElementById('imgCanvas').addEventListener('click',e=>{
+  if (corners.length>=4) return;
+  const r=e.target.getBoundingClientRect();
+  corners.push({x:e.clientX-r.left, y:e.clientY-r.top});
+  redrawCornerCanvas();
+});
+function resetCorners(){corners=[];redrawCornerCanvas();}
+function manualAutoDetect(){
+  showLoad('正在检测角点…');
+  setTimeout(()=>{autoDetectCorners(false);hideLoad();},60);
+}
+function goBack(){
+  document.getElementById('sec3').style.display='none';
+  document.getElementById('sec2').style.display='';
+  corners=[]; redrawCornerCanvas(); setStep(2);
+}
+
+// ─────────────────────────────────────────
+// 主处理流程
+// ─────────────────────────────────────────
+function startProcess() {
+  if (corners.length<4) return;
+  const run=()=>{
+    showLoad('正在透视变换…');
+    setTimeout(()=>{
+      // corners 转 procImg 坐标
+      const srcPts=corners.map(({x,y})=>({x:x/dispScale, y:y/dispScale}));
+      warpedCvs=doWarp(srcPts);
+
+      // 展示矫正预览
+      document.getElementById('sec2').style.display='none';
+      document.getElementById('sec3').style.display='';
+      setStep(3);
+      const pw=document.getElementById('warpCanvas');
+      const ps=Math.min(400,window.innerWidth-48);
+      pw.width=pw.height=ps;
+      pw.getContext('2d').drawImage(warpedCvs, 0, 0, ps, ps);
+      hideLoad();
+      runDetect();
+    },60);
+  };
+
+  if (window._cvReady || window._cvFallback) { run(); }
+  else {
+    showLoad('等待 OpenCV.js 初始化…');
+    window._pendingProcess=()=>{ hideLoad(); run(); };
+    setTimeout(()=>{ if (!window._cvReady){ window._cvFallback=true; hideLoad(); run(); } },12000);
+  }
+}
+
+function runDetect() {
+  board = detectStones();
+  if (board) { renderBoard(board); updateStats(); }
+}
+
+// ─────────────────────────────────────────
+// 棋盘点击修正
+// ─────────────────────────────────────────
+document.getElementById('boardCanvas').addEventListener('click',e=>{
+  if (!board) return;
+  const cvs=e.currentTarget;
+  const sx=WSIZE/cvs.offsetWidth, sy=WSIZE/cvs.offsetHeight;
+  const col=Math.round((e.offsetX*sx-MAR)/CELL);
+  const row=Math.round((e.offsetY*sy-MAR)/CELL);
+  if (col<0||col>=BS||row<0||row>=BS) return;
+  board[row][col]=(board[row][col]+1)%3;
+  renderBoard(board); updateStats();
+});
+</script>
+</body>
+</html>
