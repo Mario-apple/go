@@ -116,6 +116,7 @@ hr.sep{border:none;border-top:1px solid #374151;margin:10px 0}
       <span class="leg"><span class="dot" style="background:#3b82f6"></span>④ 左下</span>
     </div>
     <div class="btn-row">
+      <button class="btn btn-s" onclick="goHome()">🔄 更换图片</button>
       <button class="btn btn-s" onclick="resetCorners()">重新选点</button>
       <button class="btn btn-o" onclick="manualAutoDetect()">自动检测角点</button>
       <button class="btn btn-p" id="procBtn" disabled onclick="startProcess()">识别棋盘 →</button>
@@ -125,6 +126,7 @@ hr.sep{border:none;border-top:1px solid #374151;margin:10px 0}
   <!-- Section 3: Results -->
   <div id="sec3" style="display:none">
     <div class="btn-row" style="margin-bottom:14px">
+      <button class="btn btn-s" onclick="goHome()">🔄 更换图片</button>
       <button class="btn btn-s" onclick="goBack()">← 重新识别</button>
       <button class="btn btn-p" onclick="copySGF()">复制 SGF</button>
     </div>
@@ -948,6 +950,13 @@ function goBack(){
   document.getElementById('sec3').style.display='none';
   document.getElementById('sec2').style.display='';
   corners=[]; redrawCornerCanvas(); setStep(2);
+}
+function goHome(){
+  document.getElementById('sec2').style.display='none';
+  document.getElementById('sec3').style.display='none';
+  document.getElementById('sec1').style.display='';
+  document.getElementById('fileIn').value='';
+  corners=[]; procImg=null; warpedCvs=null; setStep(1);
 }
 
 // ─────────────────────────────────────────
